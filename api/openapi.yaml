@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: Mailer API
+  version: 1.0.0
+paths:
+  /messages/{id}:
+    get:
+      summary: Fetch message details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Message details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+components:
+  schemas:
+    MessageStatus:
+      type: string
+      description: |
+        Unified message lifecycle state shared by API, database, and worker.
+
+        - QUEUED: Message accepted and waiting for provider submission.
+        - RETRY_PENDING: Temporary failure; queued for retry.
+        - SENT: Provider accepted the message.
+        - DELIVERED: Recipient confirmed delivery.
+        - BOUNCED: Permanent bounce reported by provider.
+        - FAILED: Permanent failure before delivery (validation, provider rejection).
+        - CANCELLED: Message intentionally stopped before delivery.
+      enum:
+        - QUEUED
+        - RETRY_PENDING
+        - SENT
+        - DELIVERED
+        - BOUNCED
+        - FAILED
+        - CANCELLED
+    Message:
+      type: object
+      required:
+        - id
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/MessageStatus"
+        status_reason:
+          type: string
+          nullable: true
+          description: Machine-readable reason for the current status.
+        provider_message_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

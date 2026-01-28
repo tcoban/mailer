@@ -6,6 +6,67 @@ servers:
   - url: https://api.mailer.example
 paths:
   /v1/messages:
+    get:
+      summary: List messages
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MessageStatus'
+        - name: recipient
+          in: query
+          schema:
+            type: string
+        - name: campaign_id
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: created_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: created_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
     post:
       summary: Send message
       description: |
@@ -57,6 +118,17 @@ components:
                 detail: Idempotency-Key wurde bereits mit anderer Payload verwendet.
                 instance: /v1/messages
   schemas:
+    MessageStatus:
+      type: string
+      description: Unified message lifecycle state.
+      enum:
+        - QUEUED
+        - RETRY_PENDING
+        - SENT
+        - DELIVERED
+        - BOUNCED
+        - FAILED
+        - CANCELLED
     MessageResponse:
       type: object
       required:
@@ -69,6 +141,67 @@ components:
         status:
           type: string
           example: accepted
+    MessageListItem:
+      type: object
+      required:
+        - id
+        - status
+        - subject
+        - from
+        - to
+        - created_at
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        subject:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        campaign_id:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        failed_reason:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    MessageListResponse:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageListItem'
+        next_cursor:
+          type: string
+          nullable: true
     ProblemDetails:
       type: object
       required:

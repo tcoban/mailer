@@ -1,0 +1,89 @@
+openapi: 3.0.3
+info:
+  title: Mailer API
+  version: 1.0.0
+servers:
+  - url: https://api.mailer.example
+paths:
+  /v1/messages:
+    post:
+      summary: Send message
+      description: |
+        Send a message. This endpoint is idempotent and requires the
+        `Idempotency-Key` header for safe retries.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Message accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '4XX':
+          description: Client error
+        '5XX':
+          description: Server error
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Unique key for de-duplicating write requests.
+        Replay (same key + same payload) returns the original response.
+        Conflict (same key + different payload) returns 409.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+  responses:
+    IdempotencyConflict:
+      description: Idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            idempotencyConflict:
+              summary: Idempotency conflict
+              value:
+                type: https://docs.mailer.example/errors/idempotency-conflict
+                title: Idempotency conflict
+                status: 409
+                detail: Idempotency-Key wurde bereits mit anderer Payload verwendet.
+                instance: /v1/messages
+  schemas:
+    MessageResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          example: msg_123
+        status:
+          type: string
+          example: accepted
+    ProblemDetails:
+      type: object
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string

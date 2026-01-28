@@ -6,7 +6,7 @@
 
 ### Filters (Query-Parameter)
 
-- `status`: `queued | scheduled | sending | sent | failed | canceled`
+- `status`: `QUEUED | RETRY_PENDING | SENT | DELIVERED | BOUNCED | FAILED | CANCELLED`
 - `recipient`: Volltext/Teilstring-Suche über Empfänger-Adresse
 - `campaign_id`: exakte Übereinstimmung
 - `tag`: exakte Übereinstimmung (mehrfach möglich)
@@ -27,7 +27,7 @@
   "data": [
     {
       "id": "msg_123",
-      "status": "sent",
+      "status": "SENT",
       "subject": "Welcome",
       "from": "no-reply@example.com",
       "to": ["user@example.com"],

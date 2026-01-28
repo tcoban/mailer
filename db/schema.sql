@@ -11,11 +11,23 @@ CREATE TYPE message_status AS ENUM (
 CREATE TABLE messages (
   id TEXT PRIMARY KEY,
   status message_status NOT NULL DEFAULT 'QUEUED',
+  subject TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_addresses TEXT[] NOT NULL,
+  campaign_id TEXT,
+  tags TEXT[],
   status_reason TEXT,
   provider_message_id TEXT,
+  scheduled_at TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  failed_reason TEXT,
+  metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX messages_status_created_at_idx ON messages (status, created_at DESC);
+CREATE INDEX messages_campaign_id_idx ON messages (campaign_id);
 
 CREATE TABLE message_status_transitions (
   from_status message_status NOT NULL,

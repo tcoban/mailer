@@ -3,6 +3,74 @@ info:
   title: Mailer API
   version: 1.0.0
 paths:
+  /messages:
+    get:
+      summary: List messages
+      parameters:
+        - name: status
+          in: query
+          description: Filter by message status.
+          schema:
+            $ref: "#/components/schemas/MessageStatus"
+        - name: recipient
+          in: query
+          description: Full-text/substring search over recipient address.
+          schema:
+            type: string
+        - name: campaign_id
+          in: query
+          description: Exact campaign id match.
+          schema:
+            type: string
+        - name: tag
+          in: query
+          description: Exact tag match (repeatable).
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: created_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: created_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          description: Cursor for pagination.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Number of records to return (default 50, max 200).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Message list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageListResponse"
   /messages/{id}:
     get:
       summary: Fetch message details
@@ -66,3 +134,64 @@ components:
         updated_at:
           type: string
           format: date-time
+    MessageListItem:
+      type: object
+      required:
+        - id
+        - status
+        - subject
+        - from
+        - to
+        - created_at
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/MessageStatus"
+        subject:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        campaign_id:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        failed_reason:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    MessageListResponse:
+      type: object
+      required:
+        - data
+        - next_cursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageListItem"
+        next_cursor:
+          type: string
+          nullable: true

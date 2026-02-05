@@ -26,7 +26,7 @@ Verbindliche Zustände und Übergänge:
 - **Apps → KOFMailer**: Keycloak OAuth2 (Client-Credentials), Scopes
   - `mail.send`, `mail.status:read`
 - **Airflow → KOFMailer**: Scope `mailer.worker`
-- **KOFMailer → MS Graph**: Client-Credentials via Vault (Rotation möglich)
+- **KOFMailer → MS Graph**: Client-Credentials via Vault (Rotation möglich), Details in `docs/ms-graph-adapter.md`
 
 ## Persistenz (PostgreSQL 14+ / Prisma)
 - **Tabellen**:

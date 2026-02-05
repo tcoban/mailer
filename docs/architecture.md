@@ -58,3 +58,11 @@ Ein täglicher Cleanup-Job (z. B. per Cron oder Worker-Scheduler) löscht abgela
   - `idempotency.request_hash`
 
 Die Events werden auf INFO-Level geloggt, damit Idempotency-Hits bei Retry-Last sichtbar sind.
+
+## MS Graph Integration
+
+Der Versand erfolgt über Microsoft Graph `sendMail` im App-Kontext (Client Credentials).
+Details zu Request-Formaten, Fehlerabbildung und Provider-IDs sind in
+`docs/ms-graph-adapter.md` dokumentiert. Der Adapter stellt sicher, dass
+Graph-Responses auf das interne Statusmodell gemappt werden und die Dispatch-Backoffs
+gemäß Spezifikation greifen.

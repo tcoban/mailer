@@ -56,6 +56,12 @@ class Dispatcher:
         self.provider = provider or MSGraphAdapter()
         self.provider_name = provider_name
         self.running = False
+        
+        # Adaptive Throttling State
+        self.batch_size = BATCH_SIZE
+        self.poll_interval = 1.0
+        self.backoff_multiplier = 1.0
+
 
     async def run_loop(self):
         """Main loop that polls for messages."""
@@ -71,7 +77,11 @@ class Dispatcher:
                 await asyncio.sleep(5)
 
             if processed == 0:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(self.poll_interval)
+            else:
+                # Small pause between batches even if busy to allow other tasks
+                await asyncio.sleep(0.1)
+
 
     async def _process_batch(self, session: AsyncSession) -> int:
         """Fetch and process a batch of messages using SKIP LOCKED."""
@@ -82,8 +92,9 @@ class Dispatcher:
             select(Outbox)
             .where(Outbox.next_attempt_at <= now)
             .order_by(Outbox.next_attempt_at.asc())
-            .limit(BATCH_SIZE)
+            .limit(self.batch_size)
             .with_for_update(skip_locked=True)
+
         )
 
         result = await session.execute(stmt)
@@ -147,6 +158,7 @@ class Dispatcher:
         # ---------- Handle Result ----------
         if send_result.status == MessageStatus.SENT:
             await cb.record_success()
+            self._adjust_throttling(success=True)
             msg.status = MessageStatus.SENT
             msg.status_reason = None
             msg.provider_message_id = send_result.provider_message_id
@@ -157,7 +169,11 @@ class Dispatcher:
 
         elif send_result.status == MessageStatus.RETRY_PENDING:
             await cb.record_failure()
+            if send_result.reason == "GRAPH_RATE_LIMITED":
+                self._adjust_throttling(success=False)
+            
             outbox.retry_count += 1
+
 
             if outbox.retry_count >= MAX_RETRIES:
                 # Move to DLQ
@@ -211,3 +227,23 @@ class Dispatcher:
             messages_failed_total.labels(reason="permanent").inc()
             dlq_entries_total.inc()
             logger.error("message_failed_permanent", message_id=str(msg.id), reason=send_result.reason)
+
+    def _adjust_throttling(self, success: bool):
+        """
+        AI-driven (simple heuristic) adaptive throttling.
+        Reduces batch size and increases poll interval on 429s.
+        Increases throughput slowly on success.
+        """
+        if success:
+            # Gradually recover
+            if self.batch_size < BATCH_SIZE:
+                self.batch_size += 1
+            self.poll_interval = max(1.0, self.poll_interval * 0.9)
+            self.backoff_multiplier = max(1.0, self.backoff_multiplier * 0.8)
+        else:
+            # Aggressive backoff
+            self.batch_size = max(1, self.batch_size // 2)
+            self.poll_interval = min(30.0, self.poll_interval * 2.0)
+            self.backoff_multiplier = min(10.0, self.backoff_multiplier * 1.5)
+            logger.warning("throttling_applied", batch_size=self.batch_size, poll_interval=self.poll_interval)
+

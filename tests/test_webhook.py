@@ -86,3 +86,20 @@ class TestGenericEventMapping:
     def test_unknown_returns_none(self):
         assert _map_generic_event_to_status("nope") is None
         assert _map_generic_event_to_status("open") is None
+
+class TestWebhookEdgeCases:
+    """Edge cases for webhook processing logic."""
+    
+    def test_empty_payload_mapping(self):
+        # Mapping functions should handle empty/None gracefully
+        assert _map_graph_event_to_status("") is None
+        assert _map_generic_event_to_status("") is None
+        
+    def test_hmac_no_secret(self):
+        # Verification should pass if secret is empty (disabled)
+        assert _verify_hmac_signature(b"data", "any-sig", "") is True
+        
+    def test_hmac_mismatch_with_short_sig(self):
+        # hmac.compare_digest handles timing attacks and different lengths
+        assert _verify_hmac_signature(b"data", "short", "secret") is False
+

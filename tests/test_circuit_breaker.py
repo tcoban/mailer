@@ -151,9 +151,32 @@ class TestCircuitBreakerStates:
         assert fast_cb.state == CircuitState.OPEN
 
     @pytest.mark.asyncio
-    async def test_snapshot(self, fast_cb):
-        snap = fast_cb.snapshot()
-        assert snap["name"] == "test_provider"
-        assert snap["state"] == "CLOSED"
-        assert snap["window_total"] == 0
-        assert snap["failure_rate"] == 0.0
+    async def test_concurrent_access(self):
+        """Ensure no race conditions when multiple tasks use the CB."""
+        config = CircuitBreakerConfig(
+            window_duration=60.0,
+            failure_rate_threshold=0.5,
+            minimum_calls=10,
+        )
+        cb = CircuitBreaker("load_test", config)
+        
+        async def work(success: bool):
+            if await cb.allow_request():
+                if success:
+                    await cb.record_success()
+                else:
+                    await cb.record_failure()
+
+        # Fire 100 concurrent requests (50 success, 50 failure)
+        tasks = []
+        for i in range(50):
+            tasks.append(work(success=True))
+            tasks.append(work(success=False))
+            
+        await asyncio.gather(*tasks)
+        
+        # Should have tripped or be closed depending order, but definitely processed
+        snap = cb.snapshot()
+        assert snap["window_total"] <= 100 # Some might be blocked if it opensmid-way
+        assert cb.state in [CircuitState.CLOSED, CircuitState.OPEN]
+

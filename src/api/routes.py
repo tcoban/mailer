@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks, Query, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from structlog import get_logger
 
 from src.db.session import get_db_session
@@ -176,6 +176,40 @@ async def list_messages(
         next_cursor=next_cursor,
         total=len(items),
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /messages/{id}  – Cancellation
+# ---------------------------------------------------------------------------
+
+@router.delete("/messages/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_message(
+    id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Cancel a queued or retry-pending message.
+    """
+    msg = await db.get(Message, id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if not can_transition(msg.status, MessageStatus.CANCELLED):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot cancel message in status {msg.status}"
+        )
+
+    # Remove from outbox if exists
+    stmt = delete(Outbox).where(Outbox.message_id == id)
+    await db.execute(stmt)
+
+    msg.status = MessageStatus.CANCELLED
+    msg.status_reason = "Cancelled by user"
+    
+    await db.commit()
+    logger.info("message_cancelled", message_id=str(id))
+
 
 
 # ---------------------------------------------------------------------------

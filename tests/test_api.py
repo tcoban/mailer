@@ -68,32 +68,72 @@ async def test_create_message_success(mock_db, mock_redis):
     assert mock_redis.setex.called
 
 @pytest.mark.asyncio
-async def test_create_message_idempotency_hit(mock_db, mock_redis):
-    # Simulate Redis hit
+async def test_create_message_idempotency_conflict(mock_db, mock_redis):
+    # Simulate Redis hit with DIFFERENT payload hash
     import json
     cached_response = {
-        "request_hash": "somehash", # We need to match hash logic in test or mock it
+        "request_hash": "different_hash",
         "response_body": {"id": "old_id", "status": "QUEUED"},
         "response_status": 201
     }
     mock_redis.get.return_value = json.dumps(cached_response)
     
-    # We must patch the hash function or ensure hash matches.
-    # Easier: Patch check_idempotency logic or IdempotencyService
-    # But let's rely on redis mock for now. 
-    # The code:
-    # is_hit, cached_response, cached_status = await idempotency.check_idempotency(...)
-    #   -> calls redis.get -> returns json
-    #   -> checks hash match.
-    # So we need hash to match.
+    payload = {
+        "subject": "New Subject",
+        "body": "Hi",
+        "from_address": "s@ex.com",
+        "to": [{"email": "r@ex.com", "name": "R"}]
+    }
+    headers = {"Idempotency-Key": "same-key"}
     
-    # Option B: Mock IdempotencyService entirely
-    # Let's verify response handling only
-    # If hash doesn't match, it throws Conflict or returns False/Hit?
-    # Logic:
-    # 1. Redis Hit
-    # 2. Hash Match? -> Return Hit
-    # 3. Hash Mismatch? -> Raise Conflict
+    response = client.post("/v1/messages", json=payload, headers=headers)
+    assert response.status_code == 409
+    assert "Idempotency conflict" in response.json()["title"]
+
+@pytest.mark.asyncio
+async def test_cancel_message_success(mock_db):
+    from src.db.session import get_db_session
+    from src.db.models import Message, MessageStatus
     
-    # So we need to calculate hash or mock logic.
-    pass # Skip detailed logic here for brevity, focus on success path
+    app.dependency_overrides[get_db_session] = lambda: mock_db
+    
+    msg_id = uuid4()
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.id = msg_id
+    mock_msg.status = MessageStatus.QUEUED
+    
+    mock_db.get.return_value = mock_msg
+    
+    response = client.delete(f"/v1/messages/{msg_id}")
+    assert response.status_code == 204
+    assert mock_msg.status == MessageStatus.CANCELLED
+    assert mock_db.execute.called # For delete(Outbox)
+    assert mock_db.commit.called
+
+@pytest.mark.asyncio
+async def test_cancel_message_not_found(mock_db):
+    from src.db.session import get_db_session
+    app.dependency_overrides[get_db_session] = lambda: mock_db
+    mock_db.get.return_value = None
+    
+    response = client.delete(f"/v1/messages/{uuid4()}")
+    assert response.status_code == 404
+
+@pytest.mark.asyncio
+async def test_cancel_message_invalid_status(mock_db):
+    from src.db.session import get_db_session
+    from src.db.models import Message, MessageStatus
+    
+    app.dependency_overrides[get_db_session] = lambda: mock_db
+    
+    msg_id = uuid4()
+    mock_msg = MagicMock(spec=Message)
+    mock_msg.id = msg_id
+    mock_msg.status = MessageStatus.SENT # Cannot cancel if SENT
+    
+    mock_db.get.return_value = mock_msg
+    
+    response = client.delete(f"/v1/messages/{msg_id}")
+    assert response.status_code == 400
+    assert "Cannot cancel message in status" in response.json()["detail"]
+

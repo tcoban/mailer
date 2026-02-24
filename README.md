@@ -57,4 +57,4 @@ pytest --cov=src
 ```
 
 ---
-Built by the KOF Team.
+Built by ::KORA::.

@@ -1,4 +1,6 @@
 import asyncio
+import sys
+from os.path import abspath, dirname
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -15,6 +17,9 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# add your path
+sys.path.insert(0, abspath(dirname(dirname(__file__))))
 
 # add your model's MetaData object here
 # for 'autogenerate' support

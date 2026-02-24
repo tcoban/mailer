@@ -18,5 +18,21 @@ The API, database, and worker share the unified status model defined in `docs/st
 
 ### Alerts
 
-- **Stuck messages**: QUEUED or RETRY_PENDING older than 15 minutes.
-- **Provider failures**: FAILED rate > 2% or BOUNCED rate > 5% in 1 hour.
+- **Stuck messages**: QUEUED oder RETRY_PENDING older than 15 minutes.
+- **Provider failures**: FAILED rate > 2% oder BOUNCED rate > 5% in 1 hour.
+
+## Operational Procedures
+
+### Docker Operations
+- **Start Stack**: `docker compose up -d`
+- **View Logs**: `docker compose logs -f app`
+- **Rebuild**: `docker compose up --build`
+
+### DLQ Management
+When a message enters the Dead Letter Queue (DLQ):
+1. Investigate the `status_reason` via the Admin API or DB.
+2. Resolve the underlying issue (e.g., provider credentials, invalid recipient).
+3. Replay the message using the Admin API:
+   - Single: `POST /v1/admin/dlq/{id}/replay`
+   - Bulk: `POST /v1/admin/dlq/replay-all`
+

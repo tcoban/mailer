@@ -66,7 +66,7 @@ Prefer: outlook.body-content-type="html"
 **Hinweise:**
 - `from` MUSS ein Mailbox-Objekt im Tenant sein, das `sendMail` im App-Kontext erlaubt.
 - `saveToSentItems=false` verhindert Postfach-Wachstum (kann per Config überschrieben werden).
-- Attachments sind auf Graph-Limits zu beschränken; der Mailer validiert vor Versand.
+
 
 ## Provider Message ID
 Graph `sendMail` liefert keinen Message-ID-Body zurück. Für `provider_message_id`

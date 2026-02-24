@@ -1,98 +1,51 @@
 # Dispatch-Spezifikation
 
-## Ziel
-Diese Spezifikation beschreibt das verbindliche Dispatch-Verhalten für ausgehende E-Mails. Sie definiert die Datenbankstrategie für die Auswahl von Jobs, die notwendigen Felder im `mail_outbox`-Schema, den Backoff-Algorithmus sowie Konfigurationsparameter.
+Diese Spezifikation beschreibt das verbindliche Dispatch-Verhalten für ausgehende E-Mails im Python-Rebuild.
 
-## Datenbankstrategie (SQL/Prisma)
+## Datenbankstrategie (SQLAlchemy Async)
 
 ### SQL: `SELECT … FOR UPDATE SKIP LOCKED`
-Der Dispatcher MUSS konkurrierende Worker durch eine transaktionale Auswahl schützen.
+Der Dispatcher schützt konkurrierende Worker durch eine transaktionale Auswahl auf Basis von `SKIP LOCKED`.
 
-**Normatives Vorgehen:**
-1. Eine Transaktion BEGINnen.
-2. Eine begrenzte Menge von Jobs auswählen, die
-   - `status = 'queued'` sind,
-   - `nextAttemptAt <= NOW()` sind,
-   - `retryCount < maxAttempts` erfüllen.
-3. Die ausgewählten Zeilen per `FOR UPDATE SKIP LOCKED` sperren.
-4. Innerhalb derselben Transaktion den Status auf `dispatching` (oder `in_flight`) setzen und `lastAttemptAt` aktualisieren.
+**Vorgehen:**
+1. Dynamische `batch_size` ermitteln (siehe Adaptive Throttling).
+2. Jobs auswählen, die:
+   - In der Tabelle `outbox` liegen.
+   - `next_attempt_at <= NOW()` sind.
+3. Zeilen per `with_for_update(skip_locked=True)` sperren.
+4. Nachrichten parallel verarbeiten (`asyncio.gather`).
 5. Transaktion COMMITten.
 
-**Beispiel (PostgreSQL):**
-```sql
-BEGIN;
+## Schema: `outbox`
+Die Tabelle enthält folgende steuernde Felder:
 
-WITH candidates AS (
-  SELECT id
-  FROM mail_outbox
-  WHERE status = 'queued'
-    AND next_attempt_at <= NOW()
-    AND retry_count < :max_attempts
-  ORDER BY next_attempt_at ASC, id ASC
-  LIMIT :batch_size
-  FOR UPDATE SKIP LOCKED
-)
-UPDATE mail_outbox
-SET status = 'dispatching',
-    last_attempt_at = NOW()
-FROM candidates
-WHERE mail_outbox.id = candidates.id
-RETURNING mail_outbox.*;
+| Feld | Typ | Bedeutung |
+| --- | --- | --- |
+| `retry_count` | `INTEGER` | Anzahl der bisherigen Versandversuche. |
+| `next_attempt_at` | `TIMESTAMP` | Zeitpunkt für den nächsten erlaubten Versuch. |
+| `last_attempt_at` | `TIMESTAMP` | Zeitpunkt des letzten Dispatch-Versuchs. |
 
-COMMIT;
-```
-
-### Prisma-Strategie
-Prisma unterstützt `FOR UPDATE SKIP LOCKED` nicht direkt über die Query-API. Deshalb MUSS die Auswahl via `prisma.$transaction()` und `prisma.$queryRaw` erfolgen.
-
-**Empfehlung:**
-- Verwende eine einzelne `UPDATE … FROM candidates`-Query (wie oben), um Auswahl + Statuswechsel atomar abzubilden.
-- Stelle sicher, dass die Isolationsebene mindestens `READ COMMITTED` ist.
-
-## Schema: `mail_outbox`
-Die Tabelle MUSS folgende Felder (zusätzlich zu bestehenden) enthalten:
-
-| Feld            | Typ (Beispiel)        | Bedeutung |
-|-----------------|-----------------------|-----------|
-| `retryCount`    | `INTEGER NOT NULL`    | Anzahl der bisherigen Versandversuche. Beginnt bei 0. |
-| `nextAttemptAt` | `TIMESTAMP NOT NULL`  | Zeitpunkt, ab dem der nächste Versuch erlaubt ist. |
-| `lastError`     | `TEXT NULL`           | Letzte Fehlermeldung (kompakt, ggf. gekürzt). |
-| `lastAttemptAt` | `TIMESTAMP NULL`      | Zeitpunkt des letzten Dispatch-Versuchs. |
-
-Zusätzlich gelten folgende Regeln:
-- `retryCount` wird bei jedem fehlgeschlagenen Versuch um 1 erhöht.
-- `lastAttemptAt` wird bei jedem Versuch gesetzt (auch bei Erfolg).
-- `lastError` wird bei Erfolg geleert oder auf `NULL` gesetzt.
-
-## Backoff-Algorithmus und Konfiguration
-Der Backoff ist exponentiell mit optionalem Jitter.
+## Backoff-Algorithmus
+Der Backoff ist exponentiell ohne Jitter (Stand: Implementierung Phase 4).
 
 ### Formel
-Für `retryCount = n` (nach dem Inkrement) gilt:
-
+Für `retry_count = n` (nach Inkrement) gilt:
 ```
-base = DISPATCH_BACKOFF_BASE_SECONDS
-max = DISPATCH_BACKOFF_MAX_SECONDS
-jitter = DISPATCH_BACKOFF_JITTER (0.0–1.0)
-
-raw = base * 2^n
-capped = min(raw, max)
-random_factor = 1 ± (jitter * rand())
-backoff_seconds = capped * random_factor
-
-nextAttemptAt = now + backoff_seconds
+retry_after = BASE_BACKOFF * (2 ** (n - 1))
+next_attempt_at = now + retry_after
 ```
+*Hinweis: Der Provider kann diesen Wert im Header `Retry-After` explizit überschreiben.*
 
-Wenn `jitter = 0`, ist der Backoff deterministisch.
+## Adaptive Throttling
+Der Dispatcher passt seinen Durchsatz dynamisch an das Feedback des Providers (z. B. MS Graph 429) an:
 
-### Konfigurationsparameter
-Die Konfiguration MUSS folgende Parameter bereitstellen:
+| Event | Aktion |
+| --- | --- |
+| **HTTP 429** | `batch_size` halbieren, `poll_interval` verdoppeln. |
+| **Erfolg** | `batch_size` schrittweise erhöhen, `poll_interval` reduzieren. |
 
-| Parameter | Typ | Default | Beschreibung |
-|-----------|-----|---------|--------------|
-| `DISPATCH_MAX_ATTEMPTS` | Integer | `5` | Maximale Anzahl an Dispatch-Versuchen pro Mail. |
-| `DISPATCH_BACKOFF_BASE_SECONDS` | Integer | `30` | Basisintervall für exponentiellen Backoff. |
-| `DISPATCH_BACKOFF_MAX_SECONDS` | Integer | `3600` | Obergrenze für Backoff. |
-| `DISPATCH_BACKOFF_JITTER` | Float | `0.2` | Jitter-Faktor (0.0–1.0). |
+Konstanten:
+- `MAX_RETRIES`: 5
+- `BASE_BACKOFF`: 30s
+- `BATCH_SIZE` (Standard): 10
 
-**Regel:** Sobald `retryCount >= DISPATCH_MAX_ATTEMPTS`, MUSS der Status auf `failed` gesetzt werden, und es dürfen keine weiteren Versuche stattfinden.

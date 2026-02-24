@@ -65,11 +65,16 @@ async def run_async_migrations() -> None:
 
     """
 
+    # Use the async URL from central settings
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = settings.async_database_url
+
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
